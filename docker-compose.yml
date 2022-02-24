@@ -1,0 +1,81 @@
+version: '3'
+
+services: 
+  aria2: 
+    image: p3terx/aria2-pro
+    restart: always
+    logging: 
+      options: 
+        max-size: 1m
+    #ports: 
+    #  - 6800:6800
+    #  - 6888:6888
+    #  - 6888:6888/udp
+    environment: 
+      - PUID=1000
+      - PGID=1000
+      - RPC_SECRET=
+      - UPDATE_TRACKERS=true
+      - DISK_CACHE=64M
+      - IPV6_MODE=true
+    volumes: 
+      - /data/Cloudreve/aria2/config:/config
+      - /data/Cloudreve/aria2/downloads:/downloads
+    network_mode: host
+      #    networks: 
+      #- default
+
+  cloudreve: 
+    image: xavierniu/cloudreve:arm64v8
+    restart: always
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.cloudreve.rule=Host(`cloudreve.exampl.org`)"
+      - "traefik.http.routers.cloudreve.entrypoints=websecure"
+      - "traefik.http.routers.cloudreve.tls.certresolver=myresolver"
+      - "traefik.http.services.cloudreve.loadbalancer.server.port=5212"
+    environment: 
+      - PUID=1000
+      - PGID=1000
+      - TZ="Asia/Shanghai"
+    volumes: 
+      - /data/Cloudreve/uploads:/cloudreve/uploads
+      - /data/Cloudreve/aria2/downloads:/downloads
+      - /data/Cloudreve/conf.ini:/cloudreve/conf.ini
+        #- /data/Cloudreve/cloudreve.db:/cloudreve/cloudreve.db
+      - /data/Cloudreve/avatar/:/cloudreve/avatar/
+      # - /data/Transmission/downloads/complete/:/Transmission # 其他的宿主机目录
+    ports:
+      - 5212:5212
+    networks: 
+      - default
+      - proxy-tier
+
+  db:
+    image: mariadb
+    command: --max_allowed_packet=32505856 --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+    container_name: cloudreve_db
+    restart: always
+    volumes:
+      - /data/Cloudreve/mysql:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=
+      - MYSQL_PASSWORD=
+      - MYSQL_DATABASE=cloudreve
+      - MYSQL_USER=cloudreve
+    networks: 
+      - default
+
+  redis:
+    image: redis:alpine
+    restart: always
+    networks: 
+      - default
+
+
+networks:
+  proxy-tier:
+    external:
+      name:  traefik
+
+
