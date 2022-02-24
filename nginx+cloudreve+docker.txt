@@ -1,0 +1,111 @@
+①创建专属网络：
+  docker network create cloudreve-network
+------------
+②检查网络是否创建成功：
+  docker network ls
+root@cjz-virtual-machine:/opt/nginx/conf.d# docker network ls
+NETWORK ID     NAME                DRIVER    SCOPE
+5aac9147ffff   bridge              bridge    local
+74e288695e04   cloudreve-network   bridge    local
+3f6483553413   host                host      local
+0d76658af45b   my-network          bridge    local
+1ddb244249fb   none                null      local
+------------
+③本地创建文件目录：详情见docker安装部署nginx
+mkdir -p /opt/nginx/conf.d 
+mkdir -p /opt/nginx/html
+mkdir -p /opt/nginx/logs
+mkdir -p /opt/nginx/conf
+------------
+④启动nginx容器：由于宿主机已经安装了nginx，80端口已经配给了他，所以此处映射的时候需要将容器的80端口映射到一个并未被启用的其他端口，如，82 81之类，此处设置为8080
+docker run  --network cloudreve-network -p 8080:80 -p 443:443 --name nginx --restart=always -v /opt/nginx/conf/nginx.conf:/etc/nginx/nginx.conf -v /opt/nginx/conf.d:/etc/nginx/conf.d -v /opt/nginx/html:/usr/share/nginx/html -v /opt/nginx/logs:/var/log/nginx  -d  nginx
+------------
+⑤检查是否正确：
+        命令：docker ps
+root@cjz-virtual-machine:/opt/nginx/conf.d# docker ps
+CONTAINER ID   IMAGE                 COMMAND                   CREATED          STATUS                          PORTS                                                                                      NAMES
+bf06ddca55ae   nginx                 "/docker-entrypoint.…"    32 seconds ago   Up 31 seconds                   0.0.0.0:443->443/tcp, :::443->443/tcp, 0.0.0.0:8080->80/tcp, :::8080->80/tcp               nginx
+422fa3675426   helyho/dockerfly      "/bin/sh -c \"./start…"   19 hours ago     Up 15 hours                     0.0.0.0:2735->2735/tcp, :::2735->2735/tcp, 0.0.0.0:28083->28083/tcp, :::28083->28083/tcp   dockerfly
+bf785ef8d8c2   portainer/portainer   "/portainer"              3 days ago       Up 15 hours                     0.0.0.0:9000->9000/tcp, :::9000->9000/tcp                                                  portainer
+b2046265540c   jellyfin/jellyfin     "/jellyfin/jellyfin"      12 days ago      Up 15 hours                                                                                                                jellyfin
+6879704fccfa   ubuntu                "bash"                    2 weeks ago      Restarting (0) 45 seconds ago                                                                                              ubuntu
+------------
+⑥浏览器输入：ip：8080
+http://192.168.0.102:8080/ 
+页面此刻应该显示默认的欢迎页面，也就是html目录下的index.html
+------------
+⑦启动cloudreve镜像容器
+docker run -d --name cloudreve --network cloudreve-network -e PUID=0 -e PGID=0 -e TZ="Asia/Shanghai"  -p 5212:5212  --restart=unless-stopped -v /opt/cloudreve/downloads:/cloudreve/downloads -v /opt/cloudreve/uploads:/cloudreve/uploads -v /opt/cloudreve/config:/cloudreve/config  -v /opt/cloudreve/db:/cloudreve/db  -v /opt/cloudreve/avatar:/cloudreve/avatar  xavierniu/cloudreve:latest
+
+
+[Info]    2022-02-24 14:47:30 初始管理员账号：admin@cloudreve.org
+[Info]    2022-02-24 14:47:30 初始管理员密码：AbTOJFmg
+--------------
+⑧修改部署文件:
+进入nginx宿主机挂载目录，找到conf.d文件夹，修改default.conf
+   location / {
+       # root   /usr/share/nginx/html;
+       # index  index.html index.htm;
+       proxy_pass http://172.18.0.3:5212;
+    }
+注释掉       # root   /usr/share/nginx/html;
+       # index  index.html index.htm;
+添加 proxy_pass http://172.18.0.3:5212; 其中，地址为容器地址，端口为容器对应内部端口
+其实除了这个地址外，用容器的网卡地址-172.18.0.1也可以访问到,甚至172.17.0.1都可以
+--------------
+⑨修改后的配置文件是否有错：
+nginx -t
+---------------
+⑩重启nginx容器
+docker restart nginx
+---------------
+⑩访问容器地址，192.168.0.102:8080
+此刻应该跳转到cloudreve的登入页面
+-----------
+⑩①思考：其实nginx宿主挂载目录conf.d下的配置文件名称不一定是default.conf
+   比如此处，把default改为 cloudreve.conf
+   文件内容如下：
+server {
+  listen 80;
+  location / {
+    proxy_pass http://172.18.0.3:5212;
+    proxy_set_header Host $host;
+  }
+}
+ 修改之和，重启nginx，访问nginx地址，一样可以跳转到cloudreve网页
+
+-----------
+⑩②
+  由于每次启动容器，ip地址是在某个网段随机分配的，所以可能会造成错误。解决这样的问题就需要去修改conf.d里的配置文件
+避免麻烦，我们可以设置每次启动对应ip：
+-p 127.0.0.2:5212:5212：将容器的 5212 端口映射到 127.0.0.2 的 5212 端口。
+
+-p 127.0.0.2:8080:80：将容器的 80 端口映射到 127.0.0.2 的 8080 端口。
+--volume &quot;$PWD/wordpress&quot;:/var/www/html：将容器的 /var/www/html 目录映射到当前目录的 
+浏览器访问 127.0.0.2:8080:80 就能看到 
+--------------
+⑩③
+安装aria2
+docker pull p3terx/aria2-pro
+---------------
+⑩④
+启动aria2容器
+docker run -d \
+    --name aria2 \
+    --restart unless-stopped \
+    --log-opt max-size=1m \
+    -e PUID=0 \
+    -e PGID=0 \
+    -e RPC_SECRET=<SECRET> \
+    -p 6800:6800 \ #1
+    -p 6888:6888 -p 6888:6888/udp \
+    --network cloudreve-network \
+    -v /opt/cloudreve/aconfig:/config \
+    -v /opt/cloudreve/downloads:/downloads \
+    p3terx/aria2-pro
+
+<SECRET>: Aria2 RPC密码（你可以去这里生成随机字符串）。请记下该密码！在后续Cloudreve设置Aria2中会使用。
+SWbi6XDvUd
+
+docker run -d --name aria2 --restart unless-stopped  --log-opt max-size=1m -e PUID=0 -e PGID=0 -e RPC_SECRET=SWbi6XDvUd -p 6800:6800  -p 6888:6888 -p 6888:6888/udp --network cloudreve-network -v /opt/cloudreve/aconfig:/config  -v /opt/cloudreve/downloads:/downloads p3terx/aria2-pro
+
